@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packet Entropy</title>
+    
+  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/open-dyslexic-regular.min.css">
+    
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000000; 
+            font-family: 'OpenDyslexicRegular', 'OpenDyslexic', sans-serif;
+            color: #ffffff; 
+        }
+        
+      
+        #hud-top-left, #hud-top-left * {
+            font-family: 'OpenDyslexicRegular', 'OpenDyslexic', sans-serif;
+            color: #ffffff;
+        }
+        #hud-top-left {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 15px;
+            border: 1px solid #ffffff;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+            pointer-events: none; 
+            z-index: 10;
+        }
+        #hud-top-left h2 {
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+            text-transform: uppercase;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-top: 8px;
+            font-size: 0.85em;
+        }
+        .color-box {
+            width: 15px;
+            height: 15px;
+            margin-right: 10px;
+            border: 1px solid #fff;
+        }
+    </style>
+</head>
+<body>
+    <div id="hud-top-left">
+        <h2>Packet Entropy</h2>
+        
+       
+        <div class="legend-item"><div class="color-box" style="background: hsl(240, 100%, 50%);"></div> Low</div>
+        <div class="legend-item"><div class="color-box" style="background: hsl(0, 100%, 50%);"></div> High</div>
+    </div>
+
+    <script>
+        
+        const scene = new THREE.Scene();
+       
+        scene.fog = new THREE.FogExp2(0x000000, 0.007);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        camera.position.set(0, 0, 5); 
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+       
+        const starGeometry = new THREE.BufferGeometry();
+        
+        
+        const starMaterial = new THREE.PointsMaterial({ 
+            size: 0.3, 
+            vertexColors: true, 
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending
+        });
+        
+        const starVertices = [];
+        const starColors = [];
+        
+        
+        const starPalette = [
+            new THREE.Color(0xffbd6f), 
+            new THREE.Color(0xffd2a1), 
+            new THREE.Color(0xfff4e8), 
+            new THREE.Color(0xffffff), 
+            new THREE.Color(0xcddbfa), 
+            new THREE.Color(0x9db4ff)  
+        ];
+
+        for (let i = 0; i < 40000; i++) {
+           
+            let startX, startY;
+            
+            do {
+                startX = THREE.MathUtils.randFloatSpread(1000);
+                startY = THREE.MathUtils.randFloatSpread(1000);
+            } while (Math.sqrt(startX * startX + startY * startY) < 12); 
+
+            starVertices.push(startX); 
+            starVertices.push(startY); 
+            starVertices.push(Math.random() * -3000);               
+            
+          
+            const color = starPalette[Math.floor(Math.random() * starPalette.length)];
+            starColors.push(color.r, color.g, color.b);
+        }
+        
+        
+        starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+        starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(starColors, 3));
+        
+        const stars = new THREE.Points(starGeometry, starMaterial);
+        scene.add(stars);
+
+        const activePackets = [];
+        
+        const packetGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+        
+        const socket = io();
+
+        
+        socket.on('packet_stream', (data) => {
+            if (document.hidden) return;
+
+            
+            const angle = Math.random() * Math.PI * 2;
+            
+            
+            const hue = Math.max(0, 240 - (data.entropy / 8) * 240);
+            const boxColor = new THREE.Color(`hsl(${hue}, 100%, 50%)`);
+
+            const material = new THREE.MeshBasicMaterial({ 
+                color: boxColor,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending
+            });
+            const cube = new THREE.Mesh(packetGeometry, material);
+
+           
+            const lengthScale = Math.max(0.1, data.size / 200);
+      
+            cube.scale.set(0.15, 0.15, lengthScale);         
+
+            
+            const tunnelRadius = 9.5; 
+            const x = Math.cos(angle) * tunnelRadius;
+            const y = Math.sin(angle) * tunnelRadius;
+            
+            
+            cube.position.set(x, y, -200);
+            
+            scene.add(cube);
+            activePackets.push(cube);
+        });
+
+      
+        function animate() {
+            requestAnimationFrame(animate);
+
+            
+            const positions = stars.geometry.attributes.position.array;
+            
+            
+            for(let i = 2; i < positions.length; i += 3) {
+                positions[i] += 0.5; 
+                
+                
+                if(positions[i] > 10) {
+                    positions[i] = -1000; 
+                }
+            }
+            stars.geometry.attributes.position.needsUpdate = true;
+
+            for (let i = activePackets.length - 1; i >= 0; i--) {
+                const packet = activePackets[i];
+                packet.position.z += 0.5; 
+
+                
+                packet.rotation.z += 0.05;
+
+                
+                if (packet.position.z > 0) {
+                    scene.remove(packet);
+                    packet.material.dispose(); 
+                    activePackets.splice(i, 1);
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+     
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
